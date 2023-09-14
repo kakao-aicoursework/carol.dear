@@ -86,14 +86,14 @@ class State(pc.State):
         return translated
 
     def post(self):
-        self.messages = [
+        self.messages = self.messages + [
             Message(
                 original_text=self.text,
                 text=self.output,
                 created_at=datetime.now().strftime("%B %d, %Y %I:%M %p"),
                 to_lang=self.trg_lang,
             )
-        ] + self.messages
+        ]
 
 
 # Define views.
@@ -188,12 +188,20 @@ def index():
     """The main view."""
     return pc.container(
         header(),
+
+        pc.vstack(
+            pc.foreach(State.messages, message),
+            margin_top="2rem",
+            spacing="1rem",
+            align_items="left"
+        ),
         pc.input(
             placeholder="Text to translate",
             on_blur=State.set_text,
             margin_top="1rem",
             border_color="#eaeaef"
         ),
+        pc.button("Post", on_click=State.post, margin_top="1rem"),
         pc.select(
             list(parallel_example.keys()),
             value=State.src_lang,
@@ -208,14 +216,8 @@ def index():
             on_change=State.set_trg_lang,
             margin_top="1rem",
         ),
-        output(),
-        pc.button("Post", on_click=State.post, margin_top="1rem"),
-        pc.vstack(
-            pc.foreach(State.messages, message),
-            margin_top="2rem",
-            spacing="1rem",
-            align_items="left"
-        ),
+
+        # output(),
         padding="2rem",
         max_width="600px"
     )
