@@ -9,7 +9,6 @@ import pynecone as pc
 from pynecone.base import Base
 
 
-# openai.api_key = "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"
 openai.api_key = open("appkey.txt", "r").read()
 
 parallel_example = {
