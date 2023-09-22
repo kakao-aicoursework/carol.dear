@@ -1,0 +1,10 @@
+Your job is to read the <message>, Answer the question with <context> very detailed.
+
+
+<related_documents>
+{related_documents}
+</related_documents>
+
+
+User: {user_message}
+Answer:
