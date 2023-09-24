@@ -1,0 +1,13 @@
+Your job is to read the <message> and guide data.
+
+<message>
+{user_message}
+</message>
+
+<related_documents>
+{related_documents}
+</related_documents>
+
+
+User: {user_message}
+Answer:

@@ -6,38 +6,86 @@ from pcconfig import config
 import openai
 import os.path
 import pynecone as pc
-from datetime import datetime
-from langchain.prompts import PromptTemplate
+import chromadb
 from langchain.chains import LLMChain
-from langchain import LLMMathChain
 from langchain.chat_models import ChatOpenAI
 # from chatbot import style
 from langchain.embeddings.openai import OpenAIEmbeddings
 
 from langchain.vectorstores import Chroma
-from langchain.tools import Tool
 
 from langchain.prompts.chat import ChatPromptTemplate
-from langchain.utilities import GoogleSearchAPIWrapper
-from langchain.memory import ConversationBufferMemory, FileChatMessageHistory
 from langchain.document_loaders import TextLoader
 from pynecone.base import Base
 
 import os
 
+import pandas as pd
+
 os.environ["OPENAI_API_KEY"] = open("../appkey.txt", "r").read()
 openai.api_key = open("../appkey.txt", "r").read()
 
-
 DATA_DIR = os.path.dirname(os.path.abspath('datas'))
+INTENT_PROMPT_TEMPLATE = os.path.join("prompts", "parse_intent.txt")
 
 CHROMA_PERSIST_DIR = os.path.join(DATA_DIR, "upload/chroma-persist")
 CHROMA_COLLECTION_NAME = "dosu-bot"
 
+
+def formalize_data(file_path):
+    # 데이터 준비
+    # 인덱스
+    ids = []
+    # 메타데이터
+    doc_meta = []
+    # 벡터로 변환 저장할 텍스트 데이터로 ChromaDB에 Embedding 데이터가 없으면 자동으로 벡터로 변환해서 저장
+    documents = []
+
+    long_string = open(file_path).read()
+    sections = long_string.strip().split('\n')
+
+    # 각 섹션을 분석하여 'menu'와 'data' 열에 데이터를 저장할 리스트 생성
+    menu = []
+    data = []
+
+    current_menu = None
+    current_data = []
+
+    # 섹션을 순회하면서 데이터를 분류
+    for section in sections:
+        if section.startswith("#"):  # 메뉴 정보인 경우
+            if current_menu:  # 현재 메뉴가 존재하면 저장
+                menu.append(current_menu)
+                data.append("\n".join(current_data))  # 데이터 항목을 개행문자로 구분하여 저장
+            current_menu = section[1:].strip()  # '#' 제거하고 공백 제거
+            current_data = []  # 새로운 데이터 항목 초기화
+        else:  # 데이터 항목인 경우
+            current_data.append(section.strip())
+
+    # 마지막 메뉴와 데이터 저장
+    if current_menu:
+        menu.append(current_menu)
+        data.append("\n".join(current_data))
+
+    # DataFrame 생성
+    df = pd.DataFrame({'menu': menu, 'data': data})
+
+    for idx in range(len(df)):
+        item = df.iloc[idx]
+        id = item['menu'].lower().replace(' ', '-')
+        document = f"{item['menu']}: {item['data']}"
+
+        ids.append(id)
+        # doc_meta.append(meta)
+        documents.append(document)
+
+    return (ids, documents)
+
+
 def upload_embedding_from_file(file_path):
     documents = TextLoader(file_path).load()
 
-    text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+    text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
     docs = text_splitter.split_documents(documents)
     print(docs, end='\n\n\n')
 
@@ -50,9 +98,24 @@ def upload_embedding_from_file(file_path):
     print('db success')
 
 
-upload_embedding_from_file(os.path.join("datas", "project_data_카카오소셜.txt"))
-upload_embedding_from_file(os.path.join("datas", "project_data_카카오싱크.txt"))
-upload_embedding_from_file(os.path.join("datas", "project_data_카카오톡채널.txt"))
+client = chromadb.PersistentClient()
+
+collection = client.get_or_create_collection(
+    name="kakao_data",
+    metadata={"hnsw:space": "cosine"}
+)
+
+
+def create_collection():
+    (ids, documents) = formalize_data(os.path.join("datas", "project_data_카카오소셜.txt"))
+    collection.add(documents=documents, ids=ids)
+    (ids, documents) = formalize_data(os.path.join("datas", "project_data_카카오싱크.txt"))
+    collection.add(documents=documents, ids=ids)
+    (ids, documents) = formalize_data(os.path.join("datas", "project_data_카카오톡채널.txt"))
+    collection.add(documents=documents, ids=ids)
+
+
+create_collection()
 
 
 def read_prompt_template(file_path: str) -> str:
@@ -60,6 +123,7 @@ def read_prompt_template(file_path: str) -> str:
         prompt_template = f.read()
 
     return prompt_template
+
 
 def create_chain(llm, template_path, output_key):
     return LLMChain(
@@ -72,45 +136,45 @@ def create_chain(llm, template_path, output_key):
     )
 
 
-llm = ChatOpenAI(temperature=0.1, max_tokens=200, model="gpt-3.5-turbo")
-
+llm = ChatOpenAI(temperature=0.1, max_tokens=1000, model="gpt-3.5-turbo")
 chain = create_chain(llm, os.path.join("prompts", "default_response.txt"), "output")
 
-# parse_intent_chain = create_chain(
-#     llm=llm,
-#     template_path=os.path.join("prompts", "default_response.txt"),
-#     output_key="intent",
-# )
-
-_db = Chroma(
-    persist_directory=CHROMA_PERSIST_DIR,
-    embedding_function=OpenAIEmbeddings(),
-    collection_name=CHROMA_COLLECTION_NAME,
+parse_intent_chain = create_chain(
+    llm=llm,
+    template_path=INTENT_PROMPT_TEMPLATE,
+    output_key="intent",
 )
 
-_retriever = _db.as_retriever()
 
+def query_db(query: str) -> list[str]:
+    vector_res = collection.query(
+        query_texts=[query],
+        n_results=10,
+    )
 
-def query_db(query: str, use_retriever: bool = False) -> list[str]:
-    if use_retriever:
-        docs = _retriever.get_relevant_documents(query)
-    else:
-        docs = _db.similarity_search(query)
+    srchres = []
+    for v in vector_res['documents'][0]:
+        item = v.split(':')
+        srchres.append({
+            "menu": item[0].strip(),
+            "data": item[1].strip()
+        })
 
-    str_docs = [doc.page_content for doc in docs]
-    return str_docs
+    return srchres
+
 
 INTENT_LIST_TXT = os.path.join(DATA_DIR, "prompts/intent_list.txt")
-def generate_answer(user_message) -> dict[str, str]:
 
+
+def generate_answer(user_message) -> dict[str, str]:
     print('generate_answer')
 
     context = dict(user_message=user_message)
     context["input"] = context["user_message"]
     context["intent_list"] = read_prompt_template(INTENT_LIST_TXT)
 
-    # intent = parse_intent_chain(context)["intent"]
-    # intent = parse_intent_chain.run(context)
+    intent = parse_intent_chain(context)["intent"]
+    print("===============intent : " + intent)
 
     context["related_documents"] = query_db(context["user_message"])
     answer = ""
@@ -120,8 +184,6 @@ def generate_answer(user_message) -> dict[str, str]:
         answer += context[step.output_key]
         answer += "\n\n"
 
-    print(answer)
-
     return {"answer": answer}
 
 
@@ -130,6 +192,7 @@ class Message(Base):
     text: str
     # created_at: str
     # to_lang: str
+
 
 class State(pc.State):
     """The app state."""
@@ -153,6 +216,7 @@ class State(pc.State):
                 text=self.answer,
             )
         ]
+
 
 # Define views.
 def header():

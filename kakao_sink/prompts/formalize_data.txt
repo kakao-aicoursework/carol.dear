@@ -1,0 +1,16 @@
+Your job is to select one intent from the <intent_list>.
+
+Your job is to formalize the data.
+In the document, the major category character is #.
+The middle category is Arabic numerals such as 1 and 2.
+소분류는 문자 '-' 혹은 표로 되어있어. 표는 |로 구분자가 되어있고 |가 포함 된 가장 첫번째 문단은 표의 목차이고 그 아래 문단들은 표의 내용이야.
+The subcategory is written in the letter '-' or in a table.
+The table is separated by '|'.
+The first paragraph containing '|' is the header of the table and the rest is the content of the table.
+
+<related_documents>
+{related_documents}
+</related_documents>
+
+User: {user_message}
+Intent:
