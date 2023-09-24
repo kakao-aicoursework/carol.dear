@@ -35,9 +35,6 @@ CHROMA_PERSIST_DIR = os.path.join(DATA_DIR, "upload/chroma-persist")
 CHROMA_COLLECTION_NAME = "dosu-bot"
 
 def upload_embedding_from_file(file_path):
-    # loader = TextLoader.get(file_path)
-    # if loader is None:
-    #     raise ValueError("Not supported file type")
     documents = TextLoader(file_path).load()
 
     text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=100)
@@ -134,7 +131,6 @@ class Message(Base):
     # created_at: str
     # to_lang: str
 
-
 class State(pc.State):
     """The app state."""
 
@@ -142,31 +138,23 @@ class State(pc.State):
     messages: list[Message] = []
     answer = "답변"
 
-    @pc.var
-    def output(self) -> str:
+    def output(self):
         if not self.text.strip():
             return "Answer will appear here."
-        answer = generate_answer(
-            self.text)
-        return answer
+        self.answer = generate_answer(
+            self.text)['answer']
+        # return answer
 
     def post(self):
-        # answer = generate_answer(
-        #             self.text)
-        #
-        # self.output()
+        self.output()
         self.messages = self.messages + [
             Message(
                 original_text=self.text,
-                text=self.output,
+                text=self.answer,
             )
         ]
-        #
 
 # Define views.
-
-
-
 def header():
     """Basic instructions to get started."""
     return pc.box(
@@ -264,7 +252,7 @@ def index():
 
         # output(),
         padding="2rem",
-        max_width="600px"
+        max_width="1600px"
     )
 
 
